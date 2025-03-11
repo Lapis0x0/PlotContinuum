@@ -8,9 +8,10 @@ import { useRouter } from 'next/navigation';
 interface APIKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSave?: (apiKey: string) => void;
 }
 
-export default function APIKeyModal({ isOpen, onClose }: APIKeyModalProps) {
+export default function APIKeyModal({ isOpen, onClose, onSave }: APIKeyModalProps) {
   const [apiKey, setApiKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -32,7 +33,11 @@ export default function APIKeyModal({ isOpen, onClose }: APIKeyModalProps) {
     setIsSaving(true);
     try {
       saveAPIKey(apiKey);
-      onClose();
+      if (onSave) {
+        onSave(apiKey);
+      } else {
+        onClose();
+      }
       toast.success('API密钥已保存');
     } catch (error) {
       console.error('保存API密钥错误:', error);

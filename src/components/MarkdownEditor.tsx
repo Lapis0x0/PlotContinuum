@@ -5,12 +5,12 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { toast, Toaster } from 'react-hot-toast';
 import { FiSave, FiDownload, FiSettings, FiZap, FiEdit } from 'react-icons/fi';
-import { saveDocument, getDocument, saveDraftDocument, getDraftDocument, clearDraftDocument } from '@/services/documentService';
+import { DocumentData, saveDocument, getDocumentById, downloadDocument } from '@/services/localStorageService';
 import { continueWithAI, editWithAI } from '@/services/aiService';
 import { getAPIKey } from '@/services/aiSettingsService';
-import AIContinueModal from './AIContinueModal';
-import AIEditModal from './AIEditModal';
-import APIKeyModal from './APIKeyModal';
+import AIContinueModal from '@/components/AIContinueModal';
+import AIEditModal from '@/components/AIEditModal';
+import APIKeyModal from '@/components/APIKeyModal';
 
 // 动态导入Markdown编辑器，避免SSR问题
 const MDEditor = dynamic(
@@ -21,17 +21,49 @@ const MDEditor = dynamic(
 // 编辑器组件属性
 interface MarkdownEditorProps {
   documentId?: string;
+  title?: string; 
+  onTitleChange?: (title: string) => void; 
+  content?: string; 
+  onContentChange?: (content: string) => void; 
 }
 
 // 自动保存间隔（毫秒）
-const AUTO_SAVE_INTERVAL = 30000; // 30秒
-// 草稿保存间隔（毫秒）
-const DRAFT_SAVE_INTERVAL = 3000; // 3秒
+const AUTO_SAVE_INTERVAL = 10000; // 10秒
 
-export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
+// 保存文档到localStorage
+const saveDocumentToStorage = (title: string, content: string, isAutoSave: boolean = true) => {
+  if (content.trim() === '') return null;
+  
+  try {
+    const savedDoc = saveDocument({
+      title: title.trim() || '无标题文档',
+      content
+    });
+    
+    if (!isAutoSave) {
+      toast.success('文档已保存');
+    }
+    
+    return savedDoc;
+  } catch (error) {
+    console.error('保存文档错误:', error);
+    if (!isAutoSave) {
+      toast.error('保存文档失败');
+    }
+    return null;
+  }
+};
+
+export default function MarkdownEditor({ 
+  documentId,
+  title: externalTitle,
+  onTitleChange,
+  content: externalContent,
+  onContentChange
+}: MarkdownEditorProps) {
   // 状态管理
-  const [value, setValue] = useState<string>('');
-  const [title, setTitle] = useState<string>('');
+  const [value, setValue] = useState<string>(externalContent || '');
+  const [title, setTitle] = useState<string>(externalTitle || '');
   const [isAIContinueModalOpen, setIsAIContinueModalOpen] = useState(false);
   const [isAIEditModalOpen, setIsAIEditModalOpen] = useState(false);
   const [isAPIKeyModalOpen, setIsAPIKeyModalOpen] = useState(false);
@@ -39,61 +71,73 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [aiProgress, setAiProgress] = useState(0);
   const [showProgress, setShowProgress] = useState(false);
-  const lastSavedRef = useRef<string>('');
+  const lastSavedContentRef = useRef<string>('');
+  const lastSavedTitleRef = useRef<string>('');
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const draftSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const hasLoadedDraftRef = useRef<boolean>(false);
+  const hasLoadedDocRef = useRef<boolean>(false);
   const router = useRouter();
 
-  // 加载文档或草稿
+  // 同步外部标题
   useEffect(() => {
-    if (hasLoadedDraftRef.current) {
+    if (externalTitle !== undefined && externalTitle !== title) {
+      setTitle(externalTitle);
+    }
+  }, [externalTitle]);
+
+  // 同步外部内容
+  useEffect(() => {
+    if (externalContent !== undefined && externalContent !== value) {
+      setValue(externalContent);
+    }
+  }, [externalContent]);
+
+  // 加载文档
+  useEffect(() => {
+    if (hasLoadedDocRef.current) {
       return; // 防止重复加载
     }
     
     if (documentId) {
-      // 优先尝试加载草稿
-      const draft = getDraftDocument();
-      if (draft && draft.id === documentId) {
-        setValue(draft.content);
-        setTitle(draft.title);
-        lastSavedRef.current = '';  // 设置为空，表示有未保存的更改
-        toast.success('已加载未保存的草稿');
-        hasLoadedDraftRef.current = true;
+      // 尝试加载文档
+      const doc = getDocumentById(documentId);
+      if (doc) {
+        setValue(doc.content);
+        setTitle(doc.title);
+        // 通知父组件
+        if (onContentChange) onContentChange(doc.content);
+        if (onTitleChange) onTitleChange(doc.title);
+        
+        lastSavedContentRef.current = doc.content;
+        lastSavedTitleRef.current = doc.title;
+        hasLoadedDocRef.current = true;
       } else {
-        // 如果没有草稿，加载保存的文档
-        const doc = getDocument(documentId);
-        if (doc) {
-          setValue(doc.content);
-          setTitle(doc.title);
-          lastSavedRef.current = doc.content;
-          hasLoadedDraftRef.current = true;
-        } else {
-          toast.error('无法加载文档');
-          router.push('/documents');
-        }
+        toast.error('无法加载文档');
+        router.push('/documents');
       }
     } else {
-      // 新文档，检查是否有未关联ID的草稿
-      const draft = getDraftDocument();
-      if (draft && !draft.id) {
-        setValue(draft.content);
-        setTitle(draft.title);
-        toast.success('已恢复未保存的草稿');
-        hasLoadedDraftRef.current = true;
-      } else {
-        // 设置为已加载，防止后续重复检查
-        hasLoadedDraftRef.current = true;
-      }
+      // 设置为已加载，防止后续重复检查
+      hasLoadedDocRef.current = true;
     }
-  }, [documentId, router]);
+  }, [documentId, router, onContentChange, onTitleChange]);
 
   // 设置自动保存
   useEffect(() => {
+    // 确保已经完成初始加载
+    if (!hasLoadedDocRef.current) {
+      return;
+    }
+    
     // 启动自动保存定时器
     autoSaveTimerRef.current = setInterval(() => {
-      if (value !== lastSavedRef.current && title.trim() !== '') {
-        handleSave(false);
+      const contentChanged = value !== lastSavedContentRef.current;
+      const titleChanged = title !== lastSavedTitleRef.current;
+      
+      if ((contentChanged || titleChanged) && value.trim() !== '') {
+        const savedDoc = saveDocumentToStorage(title, value, true);
+        if (savedDoc) {
+          lastSavedContentRef.current = value;
+          lastSavedTitleRef.current = title;
+        }
       }
     }, AUTO_SAVE_INTERVAL);
 
@@ -103,45 +147,13 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
         clearInterval(autoSaveTimerRef.current);
       }
     };
-  }, [value, title]);
+  }, [value, title, hasLoadedDocRef.current]);
 
-  // 设置草稿自动保存
-  useEffect(() => {
-    // 确保已经完成初始加载
-    if (!hasLoadedDraftRef.current) {
-      return;
-    }
-    
-    // 启动草稿保存定时器
-    draftSaveTimerRef.current = setInterval(() => {
-      if (value.trim() !== '') {
-        saveDraftDocument({
-          id: documentId,
-          title: title.trim() || '无标题文档',
-          content: value,
-          lastModified: new Date().toISOString()
-        });
-      }
-    }, DRAFT_SAVE_INTERVAL);
-
-    // 清理定时器
-    return () => {
-      if (draftSaveTimerRef.current) {
-        clearInterval(draftSaveTimerRef.current);
-      }
-    };
-  }, [value, title, documentId, hasLoadedDraftRef.current]);
-
-  // 页面卸载前保存草稿
+  // 页面卸载前保存
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (value.trim() !== '') {
-        saveDraftDocument({
-          id: documentId,
-          title: title.trim() || '无标题文档',
-          content: value,
-          lastModified: new Date().toISOString()
-        });
+        saveDocumentToStorage(title, value, true);
       }
     };
 
@@ -150,10 +162,10 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [value, title, documentId]);
+  }, [value, title]);
 
-  // 保存文档
-  const handleSave = async (showToast = true) => {
+  // 手动保存文档
+  const handleSave = async () => {
     if (title.trim() === '') {
       toast.error('请输入标题');
       return;
@@ -161,26 +173,16 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
 
     setIsSaving(true);
     try {
-      const savedId = saveDocument({
-        id: documentId,
-        title,
-        content: value,
-        updatedAt: new Date().toISOString(),
-      });
-
-      lastSavedRef.current = value;
-
-      if (showToast) {
-        toast.success('文档已保存');
-      }
+      const savedDoc = saveDocumentToStorage(title, value, false);
+      lastSavedContentRef.current = value;
+      lastSavedTitleRef.current = title;
 
       // 如果是新文档，重定向到编辑页面
-      if (!documentId && savedId) {
-        router.push(`/editor?id=${savedId}`);
+      if (!documentId && savedDoc) {
+        router.push(`/editor?id=${savedDoc.id}`);
       }
     } catch (error) {
       console.error('保存文档错误:', error);
-      toast.error('保存文档失败');
     } finally {
       setIsSaving(false);
     }
@@ -194,20 +196,12 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
     }
 
     try {
-      // 创建Blob对象
-      const blob = new Blob([value], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      
-      // 创建下载链接
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title}.md`;
-      document.body.appendChild(a);
-      a.click();
-      
-      // 清理
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadDocument({
+        id: Date.now().toString(),
+        title,
+        content: value,
+        lastModified: Date.now()
+      });
       
       toast.success('文档已下载');
     } catch (error) {
@@ -224,13 +218,8 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
       return;
     }
 
-    // 保存当前草稿
-    saveDraftDocument({
-      id: documentId,
-      title: title.trim() || '无标题文档',
-      content: value,
-      lastModified: new Date().toISOString()
-    });
+    // 保存当前文档
+    saveDocumentToStorage(title, value, true);
 
     setIsAIContinueModalOpen(false);
     setIsProcessing(true);
@@ -245,7 +234,12 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
         ...settings,
         onStream: (chunk) => {
           continuedText += chunk;
-          setValue(prev => prev + chunk);
+          setValue(prev => {
+            const newValue = prev + chunk;
+            // 通知父组件内容变更
+            if (onContentChange) onContentChange(newValue);
+            return newValue;
+          });
         },
         onProgress: (progress) => {
           setAiProgress(progress);
@@ -274,13 +268,8 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
       return;
     }
 
-    // 保存当前草稿
-    saveDraftDocument({
-      id: documentId,
-      title: title.trim() || '无标题文档',
-      content: value,
-      lastModified: new Date().toISOString()
-    });
+    // 保存当前文档
+    saveDocumentToStorage(title, value, true);
 
     setIsAIEditModalOpen(false);
     setIsProcessing(true);
@@ -304,6 +293,8 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
       
       // 编辑完成后更新内容
       setValue(editedText);
+      // 通知父组件内容变更
+      if (onContentChange) onContentChange(editedText);
       toast.success('AI编辑完成');
     } catch (error) {
       console.error('AI编辑错误:', error);
@@ -318,36 +309,22 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
     }
   };
 
-  // 处理内容变化，保存草稿
+  // 处理内容变化
   const handleContentChange = (newValue: string | undefined) => {
     const content = newValue || '';
     setValue(content);
     
-    // 确保已经完成初始加载后再保存草稿
-    if (hasLoadedDraftRef.current && content.trim() !== '') {
-      saveDraftDocument({
-        id: documentId,
-        title: title.trim() || '无标题文档',
-        content,
-        lastModified: new Date().toISOString()
-      });
-    }
+    // 通知父组件内容变更
+    if (onContentChange) onContentChange(content);
   };
 
-  // 处理标题变化，保存草稿
+  // 处理标题变化
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
     setTitle(newTitle);
     
-    // 确保已经完成初始加载后再保存草稿
-    if (hasLoadedDraftRef.current && value.trim() !== '') {
-      saveDraftDocument({
-        id: documentId,
-        title: newTitle.trim() || '无标题文档',
-        content: value,
-        lastModified: new Date().toISOString()
-      });
-    }
+    // 通知父组件标题变更
+    if (onTitleChange) onTitleChange(newTitle);
   };
 
   return (
@@ -404,7 +381,7 @@ export default function MarkdownEditor({ documentId }: MarkdownEditorProps) {
           </button>
           
           <button
-            onClick={() => handleSave(true)}
+            onClick={handleSave}
             disabled={isSaving}
             className="flex items-center px-3 py-1 text-blue-600 bg-blue-100 rounded hover:bg-blue-200 disabled:opacity-50"
             title="保存到浏览器"

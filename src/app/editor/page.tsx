@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import MarkdownEditor from '@/components/MarkdownEditor';
 import { toast, Toaster } from 'react-hot-toast';
-import { saveDocument, getDocumentByTitle, downloadDocument, DocumentData } from '@/services/localStorageService';
+import { DocumentData, saveDocument, getDocumentByTitle, downloadDocument } from '@/services/localStorageService';
 import { FiSave, FiDownload, FiClock, FiEdit3, FiSettings } from 'react-icons/fi';
 import { continueWithAI } from '@/services/aiService';
 import { getAPIKey, saveAPIKey, getAISettings } from '@/services/aiSettingsService';
@@ -99,31 +99,40 @@ export default function EditorPage() {
 
   // 自动保存
   useEffect(() => {
-    if (!autoSaveEnabled || isSaved || isLoading) return;
+    if (!autoSaveEnabled || !content || isSaved) return;
     
-    const autoSaveTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       saveDocumentToStorage();
     }, 30000); // 30秒自动保存
     
-    return () => clearTimeout(autoSaveTimer);
-  }, [autoSaveEnabled, content, isSaved, isLoading, saveDocumentToStorage]);
+    return () => clearTimeout(timer);
+  }, [content, title, isSaved, autoSaveEnabled, saveDocumentToStorage]);
 
-  const handleContentChange = (newContent?: string) => {
+  // 切换自动保存
+  const toggleAutoSave = () => {
+    setAutoSaveEnabled(!autoSaveEnabled);
+  };
+
+  // 处理标题变更
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTitle = e.target.value;
+    setTitle(newTitle);
+    setIsSaved(false);
+  };
+
+  // 处理来自MarkdownEditor的标题变更
+  const handleEditorTitleChange = (newTitle: string) => {
+    setTitle(newTitle);
+    setIsSaved(false);
+  };
+
+  // 处理来自MarkdownEditor的内容变更
+  const handleEditorContentChange = (newContent: string) => {
     setContent(newContent);
     setIsSaved(false);
   };
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(e.target.value);
-    setIsSaved(false);
-  };
-
-  const toggleAutoSave = () => {
-    setAutoSaveEnabled(!autoSaveEnabled);
-    toast.success(autoSaveEnabled ? '已关闭自动保存' : '已开启自动保存');
-  };
-
-  // AI续写相关函数
+  // AI续写
   const handleAIContinue = async (settings: any) => {
     if (!content) return;
     
@@ -133,21 +142,12 @@ export default function EditorPage() {
       return;
     }
     
+    setAiSettingsModalOpen(false);
+    setIsAILoading(true);
+    
     try {
-      setIsAILoading(true);
-      setAiSettingsModalOpen(false);
-      
-      const continuedText = await continueWithAI(content, {
-        apiKey,
-        model: settings.model,
-        baseUrl: settings.baseUrl,
-        temperature: settings.temperature,
-        maxTokens: settings.maxTokens,
-      });
-      
-      // 将生成的内容追加到当前内容
-      const newContent = `${content}\n\n${continuedText}`;
-      setContent(newContent);
+      const continuedText = await continueWithAI(content, settings);
+      setContent(prev => prev + continuedText);
       setIsSaved(false);
       
       toast.success('AI续写完成');
@@ -255,35 +255,21 @@ export default function EditorPage() {
         </div>
       </div>
       
-      {isLoading && !content ? (
-        <div className="editor-container flex items-center justify-center">
-          <div className="flex flex-col items-center p-10">
-            <div className="w-12 h-12 border-t-2 border-b-2 border-blue-500 rounded-full animate-spin"></div>
-            <p className="mt-4 text-gray-500">加载中...</p>
-          </div>
-        </div>
-      ) : (
-        <div className="editor-container">
-          <MarkdownEditor initialValue={content} onChange={handleContentChange} />
-        </div>
-      )}
-      
-      <div className="mt-4 text-sm text-gray-500 flex justify-between items-center">
-        <p>提示: 使用Markdown语法来格式化你的文本。</p>
-        {autoSaveEnabled && (
-          <p className="text-green-600 text-xs font-medium">自动保存已开启 (每30秒)</p>
-        )}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <MarkdownEditor 
+          title={title}
+          content={content}
+          onTitleChange={handleEditorTitleChange}
+          onContentChange={handleEditorContentChange}
+        />
       </div>
-
-      {/* API密钥设置对话框 */}
+      
       <APIKeyModal
         isOpen={apiKeyModalOpen}
         onClose={() => setApiKeyModalOpen(false)}
         onSave={handleSaveApiKey}
-        initialApiKey={getAPIKey()}
       />
-
-      {/* AI续写设置对话框 */}
+      
       <AIContinueModal
         isOpen={aiSettingsModalOpen}
         onClose={() => setAiSettingsModalOpen(false)}
