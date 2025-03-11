@@ -12,6 +12,7 @@
     "@uiw/react-markdown-preview": "^4.1.13",
     "@uiw/react-md-editor": "^3.23.5",
     "next": "^14.0.0",
+    "openai": "^4.86.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.5.2",

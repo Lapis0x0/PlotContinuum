@@ -5,7 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import MarkdownEditor from '@/components/MarkdownEditor';
 import { toast, Toaster } from 'react-hot-toast';
 import { saveDocument, getDocumentByTitle, downloadDocument, DocumentData } from '@/services/localStorageService';
-import { FiSave, FiDownload, FiClock, FiEdit3 } from 'react-icons/fi';
+import { FiSave, FiDownload, FiClock, FiEdit3, FiSettings } from 'react-icons/fi';
+import { continueWithAI } from '@/services/aiService';
+import { getAPIKey, saveAPIKey, getAISettings } from '@/services/aiSettingsService';
+import APIKeyModal from '@/components/APIKeyModal';
+import AIContinueModal from '@/components/AIContinueModal';
+import Link from 'next/link';
 
 export default function EditorPage() {
   const router = useRouter();
@@ -18,6 +23,11 @@ export default function EditorPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(true);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  
+  // AI续写相关状态
+  const [isAILoading, setIsAILoading] = useState<boolean>(false);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState<boolean>(false);
+  const [aiSettingsModalOpen, setAiSettingsModalOpen] = useState<boolean>(false);
 
   // 加载文档
   useEffect(() => {
@@ -113,6 +123,58 @@ export default function EditorPage() {
     toast.success(autoSaveEnabled ? '已关闭自动保存' : '已开启自动保存');
   };
 
+  // AI续写相关函数
+  const handleAIContinue = async (settings: any) => {
+    if (!content) return;
+    
+    const apiKey = getAPIKey();
+    if (!apiKey) {
+      setApiKeyModalOpen(true);
+      return;
+    }
+    
+    try {
+      setIsAILoading(true);
+      setAiSettingsModalOpen(false);
+      
+      const continuedText = await continueWithAI(content, {
+        apiKey,
+        model: settings.model,
+        baseUrl: settings.baseUrl,
+        temperature: settings.temperature,
+        maxTokens: settings.maxTokens,
+      });
+      
+      // 将生成的内容追加到当前内容
+      const newContent = `${content}\n\n${continuedText}`;
+      setContent(newContent);
+      setIsSaved(false);
+      
+      toast.success('AI续写完成');
+    } catch (error) {
+      console.error('AI续写错误:', error);
+      toast.error('AI续写失败，请检查API密钥和网络连接');
+    } finally {
+      setIsAILoading(false);
+    }
+  };
+
+  const handleSaveApiKey = (apiKey: string) => {
+    saveAPIKey(apiKey);
+    setApiKeyModalOpen(false);
+    // 保存API密钥后打开设置对话框
+    setAiSettingsModalOpen(true);
+  };
+
+  const openAIContinue = () => {
+    const apiKey = getAPIKey();
+    if (!apiKey) {
+      setApiKeyModalOpen(true);
+    } else {
+      setAiSettingsModalOpen(true);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
       <Toaster position="top-right" />
@@ -173,12 +235,23 @@ export default function EditorPage() {
           </button>
           
           <button
-            className="btn btn-outline text-gray-600 border-gray-200 hover:bg-gray-100 btn-icon"
-            disabled
+            onClick={openAIContinue}
+            disabled={isAILoading}
+            className={`btn btn-outline text-blue-600 border-blue-200 hover:bg-blue-50 btn-icon ${
+              isAILoading ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
             <FiEdit3 />
-            AI续写
+            {isAILoading ? 'AI生成中...' : 'AI续写'}
           </button>
+          
+          <Link
+            href="/settings"
+            className="btn btn-outline text-gray-600 border-gray-200 hover:bg-gray-100 btn-icon"
+          >
+            <FiSettings />
+            设置
+          </Link>
         </div>
       </div>
       
@@ -201,6 +274,21 @@ export default function EditorPage() {
           <p className="text-green-600 text-xs font-medium">自动保存已开启 (每30秒)</p>
         )}
       </div>
+
+      {/* API密钥设置对话框 */}
+      <APIKeyModal
+        isOpen={apiKeyModalOpen}
+        onClose={() => setApiKeyModalOpen(false)}
+        onSave={handleSaveApiKey}
+        initialApiKey={getAPIKey()}
+      />
+
+      {/* AI续写设置对话框 */}
+      <AIContinueModal
+        isOpen={aiSettingsModalOpen}
+        onClose={() => setAiSettingsModalOpen(false)}
+        onContinue={handleAIContinue}
+      />
     </div>
   );
 }
