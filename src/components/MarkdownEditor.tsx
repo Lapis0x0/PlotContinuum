@@ -234,10 +234,13 @@ export default function MarkdownEditor({
         ...settings,
         onStream: (chunk) => {
           continuedText += chunk;
+          // 使用函数式更新来避免闭包问题
           setValue(prev => {
             const newValue = prev + chunk;
-            // 通知父组件内容变更
-            if (onContentChange) onContentChange(newValue);
+            // 使用setTimeout来避免在渲染过程中更新父组件状态
+            setTimeout(() => {
+              if (onContentChange) onContentChange(newValue);
+            }, 0);
             return newValue;
           });
         },
@@ -293,8 +296,10 @@ export default function MarkdownEditor({
       
       // 编辑完成后更新内容
       setValue(editedText);
-      // 通知父组件内容变更
-      if (onContentChange) onContentChange(editedText);
+      // 使用setTimeout来避免在渲染过程中更新父组件状态
+      setTimeout(() => {
+        if (onContentChange) onContentChange(editedText);
+      }, 0);
       toast.success('AI编辑完成');
     } catch (error) {
       console.error('AI编辑错误:', error);
@@ -314,8 +319,10 @@ export default function MarkdownEditor({
     const content = newValue || '';
     setValue(content);
     
-    // 通知父组件内容变更
-    if (onContentChange) onContentChange(content);
+    // 使用setTimeout来避免在渲染过程中更新父组件状态
+    setTimeout(() => {
+      if (onContentChange) onContentChange(content);
+    }, 0);
   };
 
   // 处理标题变化
@@ -323,8 +330,10 @@ export default function MarkdownEditor({
     const newTitle = e.target.value;
     setTitle(newTitle);
     
-    // 通知父组件标题变更
-    if (onTitleChange) onTitleChange(newTitle);
+    // 使用setTimeout来避免在渲染过程中更新父组件状态
+    setTimeout(() => {
+      if (onTitleChange) onTitleChange(newTitle);
+    }, 0);
   };
 
   return (
