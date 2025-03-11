@@ -5,6 +5,17 @@
 :root {
   --foreground-rgb: 0, 0, 0;
   --background-rgb: 255, 255, 255;
+  --editor-border: #e2e8f0;
+  --editor-bg: #ffffff;
+  --editor-toolbar-bg: #f8fafc;
+  --editor-hover: #f1f5f9;
+  --primary-color: #3b82f6;
+  --primary-hover: #2563eb;
+  --success-color: #10b981;
+  --success-hover: #059669;
+  --warning-color: #f59e0b;
+  --danger-color: #ef4444;
+  --danger-hover: #dc2626;
 }
 
 body {
@@ -13,12 +24,160 @@ body {
   min-height: 100vh;
 }
 
+/* 编辑器容器样式 */
 .editor-container {
   min-height: 500px;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.375rem;
+  border: 1px solid var(--editor-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
 }
 
+.editor-container:focus-within {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  border-color: var(--primary-color);
+}
+
+/* 编辑器样式覆盖 */
 .w-md-editor {
   box-shadow: none !important;
+  background-color: var(--editor-bg) !important;
+}
+
+.w-md-editor-toolbar {
+  background-color: var(--editor-toolbar-bg) !important;
+  border-bottom: 1px solid var(--editor-border) !important;
+  padding: 0.5rem !important;
+}
+
+.w-md-editor-toolbar ul li button {
+  color: #64748b !important;
+  transition: all 0.2s ease;
+}
+
+.w-md-editor-toolbar ul li button:hover {
+  color: var(--primary-color) !important;
+  background-color: var(--editor-hover) !important;
+}
+
+.w-md-editor-text {
+  padding: 1rem !important;
+}
+
+.w-md-editor-preview {
+  padding: 1rem !important;
+  box-shadow: -1px 0 0 0 var(--editor-border) !important;
+}
+
+/* 自定义按钮样式 */
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+}
+
+.btn-success {
+  background-color: var(--success-color);
+  color: white;
+}
+
+.btn-success:hover {
+  background-color: var(--success-hover);
+}
+
+.btn-outline {
+  border: 1px solid #e2e8f0;
+  background-color: transparent;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon svg {
+  margin-right: 0.375rem;
+}
+
+/* 文档标题输入框 */
+.doc-title-input {
+  font-size: 1.5rem;
+  font-weight: 700;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  width: 100%;
+  transition: all 0.2s ease;
+  background-color: transparent;
+}
+
+.doc-title-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.doc-title-input:hover {
+  background-color: #f8fafc;
+}
+
+/* 状态标签 */
+.status-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  display: inline-block;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+  line-height: normal;
+}
+
+.status-saved {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.status-unsaved {
+  background-color: #fef9c3;
+  color: #854d0e;
+}
+
+/* 美化滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }

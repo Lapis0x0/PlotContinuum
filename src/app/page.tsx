@@ -15,6 +15,12 @@ export default function Home() {
           开始写作
         </Link>
         <Link 
+          href="/documents" 
+          className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+        >
+          我的文档
+        </Link>
+        <Link 
           href="/about" 
           className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
         >
