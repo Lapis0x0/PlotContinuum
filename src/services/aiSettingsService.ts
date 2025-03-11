@@ -18,6 +18,8 @@ export interface AISettings {
   temperature: number;
   maxTokens: number;
   baseUrl: string;
+  continuationMode?: 'append' | 'insert';
+  selectedText?: string;
 }
 
 // 默认模型列表

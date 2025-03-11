@@ -199,128 +199,107 @@ export default function SettingsPage() {
           </p>
         </div>
         
-        <h2 className="text-xl font-semibold mb-4 flex items-center justify-between">
-          <div className="flex items-center">
-            <FiPlus className="mr-2 text-purple-500" />
-            模型管理
-          </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setShowAddModel(!showAddModel)}
-              className="text-sm px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 flex items-center"
-            >
-              <FiPlus className="mr-1" size={14} />
-              添加模型
-            </button>
-            <button
-              onClick={handleResetModels}
-              className="text-sm px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center"
-            >
-              <FiRefreshCw className="mr-1" size={14} />
-              重置
-            </button>
-          </div>
+        <h2 className="text-xl font-semibold mb-4 flex items-center">
+          <FiPlus className="mr-2 text-indigo-500" />
+          模型管理
         </h2>
         
-        {showAddModel && (
-          <div className="mb-4 p-4 border border-gray-200 rounded-md bg-gray-50">
-            <h3 className="text-md font-medium mb-3">添加新模型</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-gray-700 text-sm font-medium mb-1">
-                  模型名称
-                </label>
-                <input
-                  type="text"
-                  value={newModelName}
-                  onChange={(e) => setNewModelName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="例如: GPT-4"
-                />
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <label className="block text-gray-700 text-sm font-medium">
+              可用模型列表
+            </label>
+            <div className="flex space-x-2">
+              <button
+                type="button"
+                onClick={() => setShowAddModel(!showAddModel)}
+                className="flex items-center px-2 py-1 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+              >
+                <FiPlus className="mr-1" />
+                添加模型
+              </button>
+              <button
+                type="button"
+                onClick={handleResetModels}
+                className="flex items-center px-2 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              >
+                <FiRefreshCw className="mr-1" />
+                重置
+              </button>
+            </div>
+          </div>
+          
+          {showAddModel && (
+            <div className="bg-gray-50 p-4 rounded-md mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-gray-700 text-xs font-medium mb-1">
+                    模型名称
+                  </label>
+                  <input
+                    type="text"
+                    value={newModelName}
+                    onChange={(e) => setNewModelName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="例如: GPT-4"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-700 text-xs font-medium mb-1">
+                    模型值
+                  </label>
+                  <input
+                    type="text"
+                    value={newModelValue}
+                    onChange={(e) => setNewModelValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="例如: gpt-4"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-gray-700 text-sm font-medium mb-1">
-                  模型值
-                </label>
-                <input
-                  type="text"
-                  value={newModelValue}
-                  onChange={(e) => setNewModelValue(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="例如: openai/gpt-4"
-                />
-              </div>
-              <div className="flex justify-end space-x-2">
+              <div className="flex justify-end">
                 <button
-                  onClick={() => setShowAddModel(false)}
-                  className="px-3 py-1 border border-gray-300 rounded text-gray-700 hover:bg-gray-100"
-                >
-                  取消
-                </button>
-                <button
+                  type="button"
                   onClick={handleAddModel}
-                  className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
                   添加
                 </button>
               </div>
             </div>
-          </div>
-        )}
-        
-        <div className="mb-4">
-          <div className="border border-gray-200 rounded-md overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    模型名称
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    模型值
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    操作
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+          )}
+          
+          <div className="bg-gray-50 rounded-md">
+            {models.length > 0 ? (
+              <ul className="divide-y divide-gray-200">
                 {models.map((model) => (
-                  <tr key={model.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {model.name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 max-w-xs truncate">
-                      {model.value}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleDeleteModel(model.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <FiTrash2 />
-                      </button>
-                    </td>
-                  </tr>
+                  <li key={model.id} className="px-4 py-3 flex justify-between items-center">
+                    <div>
+                      <div className="font-medium">{model.name}</div>
+                      <div className="text-sm text-gray-500">{model.value}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteModel(model.id)}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <FiTrash2 />
+                    </button>
+                  </li>
                 ))}
-                {models.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">
-                      没有可用的模型，请添加新模型或重置为默认模型列表
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+              </ul>
+            ) : (
+              <div className="px-4 py-3 text-center text-gray-500">
+                没有可用的模型，请添加模型或重置为默认列表
+              </div>
+            )}
           </div>
-          <p className="mt-2 text-sm text-gray-500">
-            您可以添加自定义模型或使用默认提供的模型。删除模型后，如果它是当前选中的模型，系统会自动选择列表中的第一个模型。
-          </p>
         </div>
       </div>
       
       <div className="flex justify-end">
         <button
+          type="button"
           onClick={handleSave}
           disabled={isSaving}
           className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center"

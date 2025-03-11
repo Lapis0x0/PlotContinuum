@@ -7,7 +7,7 @@ import { toast, Toaster } from 'react-hot-toast';
 import { FiSave, FiDownload, FiSettings, FiZap, FiEdit } from 'react-icons/fi';
 import { DocumentData, saveDocument, getDocumentById, downloadDocument } from '@/services/localStorageService';
 import { continueWithAI, editWithAI } from '@/services/aiService';
-import { getAPIKey } from '@/services/aiSettingsService';
+import { getAPIKey, getAISettings, saveAPIKey } from '@/services/aiSettingsService';
 import AIContinueModal from '@/components/AIContinueModal';
 import AIEditModal from '@/components/AIEditModal';
 import APIKeyModal from '@/components/APIKeyModal';
@@ -71,10 +71,15 @@ export default function MarkdownEditor({
   const [isProcessing, setIsProcessing] = useState(false);
   const [aiProgress, setAiProgress] = useState(0);
   const [showProgress, setShowProgress] = useState(false);
+  const [selectionStart, setSelectionStart] = useState<number>(-1);
+  const [selectionEnd, setSelectionEnd] = useState<number>(-1);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{x: number, y: number} | null>(null);
   const lastSavedContentRef = useRef<string>('');
   const lastSavedTitleRef = useRef<string>('');
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedDocRef = useRef<boolean>(false);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   // 同步外部标题
@@ -104,8 +109,10 @@ export default function MarkdownEditor({
         setValue(doc.content);
         setTitle(doc.title);
         // 通知父组件
-        if (onContentChange) onContentChange(doc.content);
-        if (onTitleChange) onTitleChange(doc.title);
+        setTimeout(() => {
+          if (onContentChange) onContentChange(doc.content);
+          if (onTitleChange) onTitleChange(doc.title);
+        }, 0);
         
         lastSavedContentRef.current = doc.content;
         lastSavedTitleRef.current = doc.title;
@@ -164,50 +171,152 @@ export default function MarkdownEditor({
     };
   }, [value, title]);
 
-  // 手动保存文档
-  const handleSave = async () => {
-    if (title.trim() === '') {
-      toast.error('请输入标题');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const savedDoc = saveDocumentToStorage(title, value, false);
-      lastSavedContentRef.current = value;
-      lastSavedTitleRef.current = title;
-
-      // 如果是新文档，重定向到编辑页面
-      if (!documentId && savedDoc) {
-        router.push(`/editor?id=${savedDoc.id}`);
+  // 点击外部关闭右键菜单
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        contextMenuRef.current && 
+        !contextMenuRef.current.contains(event.target as Node) &&
+        contextMenuPosition !== null
+      ) {
+        setContextMenuPosition(null);
       }
-    } catch (error) {
-      console.error('保存文档错误:', error);
-    } finally {
-      setIsSaving(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [contextMenuPosition]);
+
+  // 设置编辑器右键菜单
+  useEffect(() => {
+    const setupContextMenu = () => {
+      const editorElement = document.querySelector('.w-md-editor-text-input') as HTMLTextAreaElement;
+      if (!editorElement) return;
+
+      editorElement.addEventListener('contextmenu', handleContextMenu);
+      
+      return () => {
+        editorElement.removeEventListener('contextmenu', handleContextMenu);
+      };
+    };
+
+    // 等待编辑器加载完成
+    const timer = setTimeout(setupContextMenu, 1000);
+    
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // 处理右键菜单
+  const handleContextMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    
+    const textArea = document.querySelector('.w-md-editor-text-input') as HTMLTextAreaElement;
+    if (textArea) {
+      editorRef.current = textArea;
+      const start = textArea.selectionStart;
+      const end = textArea.selectionEnd;
+      
+      if (start !== end) {
+        setSelectionStart(start);
+        setSelectionEnd(end);
+        setContextMenuPosition({ x: event.clientX, y: event.clientY });
+      } else {
+        setContextMenuPosition(null);
+      }
     }
   };
 
-  // 下载文档
-  const handleDownload = () => {
-    if (title.trim() === '') {
-      toast.error('请输入标题');
+  // 直接使用默认设置进行AI续写
+  const handleDirectAIContinue = async () => {
+    const apiKey = getAPIKey();
+    if (!apiKey) {
+      setIsAPIKeyModalOpen(true);
       return;
     }
 
+    setContextMenuPosition(null);
+    setIsProcessing(true);
+    setShowProgress(true);
+    setAiProgress(0);
+    
     try {
-      downloadDocument({
-        id: Date.now().toString(),
-        title,
-        content: value,
-        lastModified: Date.now()
+      // 获取AI设置（仅用于模型、温度等参数）
+      const settings = getAISettings();
+      let continuedText = '';
+      
+      // 确定续写模式
+      const hasSelection = selectionStart >= 0 && selectionEnd >= 0;
+      
+      // 如果有选中文本，则在选中位置后续写；否则在文档末尾续写
+      const isInsertMode = hasSelection;
+      const textToComplete = isInsertMode ? value.substring(selectionStart, selectionEnd) : value;
+      
+      // 使用流式传输
+      await continueWithAI(textToComplete, {
+        model: settings.model,
+        temperature: settings.temperature,
+        maxTokens: settings.maxTokens,
+        continuationMode: isInsertMode ? 'insert' : 'append',
+        onStream: (chunk) => {
+          continuedText += chunk;
+          
+          if (isInsertMode) {
+            // 在选中位置插入生成的内容
+            setValue(prev => {
+              const updatedValue = prev.substring(0, selectionEnd) + chunk + prev.substring(selectionEnd);
+              // 使用setTimeout来避免在渲染过程中更新父组件状态
+              setTimeout(() => {
+                if (onContentChange) onContentChange(updatedValue);
+              }, 0);
+              return updatedValue;
+            });
+          } else {
+            // 在文档末尾添加生成的内容
+            setValue(prev => {
+              const newValue = prev + chunk;
+              // 使用setTimeout来避免在渲染过程中更新父组件状态
+              setTimeout(() => {
+                if (onContentChange) onContentChange(newValue);
+              }, 0);
+              return newValue;
+            });
+          }
+        },
+        onProgress: (progress) => {
+          setAiProgress(progress);
+        }
       });
       
-      toast.success('文档已下载');
+      toast.success('AI续写完成');
     } catch (error) {
-      console.error('下载文档错误:', error);
-      toast.error('下载文档失败');
+      console.error('AI续写错误:', error);
+      toast.error('AI续写失败，请检查API密钥和网络连接');
+    } finally {
+      setIsProcessing(false);
+      // 延迟隐藏进度条，让用户看到100%
+      setTimeout(() => {
+        setShowProgress(false);
+        setAiProgress(0);
+      }, 1000);
     }
+  };
+
+  // 直接使用默认设置进行AI编辑
+  const handleDirectAIEdit = async () => {
+    const apiKey = getAPIKey();
+    if (!apiKey) {
+      setIsAPIKeyModalOpen(true);
+      return;
+    }
+
+    setContextMenuPosition(null);
+    
+    // 由于AI编辑需要用户提供指令，所以我们仍然需要打开编辑模态框
+    setIsAIEditModalOpen(true);
   };
 
   // 处理AI续写
@@ -228,21 +337,36 @@ export default function MarkdownEditor({
     
     try {
       let continuedText = '';
+      const isInsertMode = settings.continuationMode === 'insert' && selectionStart >= 0 && selectionEnd >= 0;
+      const textToComplete = isInsertMode ? value.substring(selectionStart, selectionEnd) : value;
       
       // 使用流式传输
-      await continueWithAI(value, {
+      await continueWithAI(textToComplete, {
         ...settings,
         onStream: (chunk) => {
           continuedText += chunk;
-          // 使用函数式更新来避免闭包问题
-          setValue(prev => {
-            const newValue = prev + chunk;
-            // 使用setTimeout来避免在渲染过程中更新父组件状态
-            setTimeout(() => {
-              if (onContentChange) onContentChange(newValue);
-            }, 0);
-            return newValue;
-          });
+          
+          if (isInsertMode) {
+            // 在选中位置插入生成的内容
+            setValue(prev => {
+              const updatedValue = prev.substring(0, selectionEnd) + chunk + prev.substring(selectionEnd);
+              // 使用setTimeout来避免在渲染过程中更新父组件状态
+              setTimeout(() => {
+                if (onContentChange) onContentChange(updatedValue);
+              }, 0);
+              return updatedValue;
+            });
+          } else {
+            // 在文档末尾添加生成的内容
+            setValue(prev => {
+              const newValue = prev + chunk;
+              // 使用setTimeout来避免在渲染过程中更新父组件状态
+              setTimeout(() => {
+                if (onContentChange) onContentChange(newValue);
+              }, 0);
+              return newValue;
+            });
+          }
         },
         onProgress: (progress) => {
           setAiProgress(progress);
@@ -281,9 +405,11 @@ export default function MarkdownEditor({
     
     try {
       let editedText = '';
+      const isEditingSelection = selectionStart >= 0 && selectionEnd >= 0;
+      const textToEdit = isEditingSelection ? value.substring(selectionStart, selectionEnd) : value;
       
       // 使用流式传输
-      editedText = await editWithAI(value, instruction, {
+      editedText = await editWithAI(textToEdit, instruction, {
         ...settings,
         onStream: (chunk) => {
           // 对于编辑，我们不实时更新，而是等待完整结果
@@ -295,11 +421,23 @@ export default function MarkdownEditor({
       });
       
       // 编辑完成后更新内容
-      setValue(editedText);
-      // 使用setTimeout来避免在渲染过程中更新父组件状态
-      setTimeout(() => {
-        if (onContentChange) onContentChange(editedText);
-      }, 0);
+      if (isEditingSelection && selectionStart >= 0 && selectionEnd >= 0) {
+        // 只替换选中的部分
+        const newValue = value.substring(0, selectionStart) + editedText + value.substring(selectionEnd);
+        setValue(newValue);
+        // 使用setTimeout来避免在渲染过程中更新父组件状态
+        setTimeout(() => {
+          if (onContentChange) onContentChange(newValue);
+        }, 0);
+      } else {
+        // 替换整个内容
+        setValue(editedText);
+        // 使用setTimeout来避免在渲染过程中更新父组件状态
+        setTimeout(() => {
+          if (onContentChange) onContentChange(editedText);
+        }, 0);
+      }
+      
       toast.success('AI编辑完成');
     } catch (error) {
       console.error('AI编辑错误:', error);
@@ -314,6 +452,16 @@ export default function MarkdownEditor({
     }
   };
 
+  // 处理保存API密钥
+  const handleSaveAPIKey = (apiKey: string) => {
+    if (apiKey) {
+      saveAPIKey(apiKey);
+      setIsAPIKeyModalOpen(false);
+      // 保存API密钥后打开AI续写设置对话框
+      setIsAIContinueModalOpen(true);
+    }
+  };
+
   // 处理内容变化
   const handleContentChange = (newValue: string | undefined) => {
     const content = newValue || '';
@@ -325,81 +473,9 @@ export default function MarkdownEditor({
     }, 0);
   };
 
-  // 处理标题变化
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTitle = e.target.value;
-    setTitle(newTitle);
-    
-    // 使用setTimeout来避免在渲染过程中更新父组件状态
-    setTimeout(() => {
-      if (onTitleChange) onTitleChange(newTitle);
-    }, 0);
-  };
-
   return (
     <div className="flex flex-col h-full">
       <Toaster position="top-right" />
-      
-      {/* 标题和工具栏 */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <input
-          type="text"
-          value={title}
-          onChange={handleTitleChange}
-          placeholder="请输入标题..."
-          className="flex-1 text-xl font-bold border-none outline-none"
-        />
-        
-        <div className="flex space-x-2">
-          <button
-            onClick={() => router.push('/settings')}
-            className="flex items-center px-3 py-1 text-gray-600 bg-gray-100 rounded hover:bg-gray-200"
-            title="设置"
-          >
-            <FiSettings className="mr-1" />
-            设置
-          </button>
-          
-          <button
-            onClick={() => setIsAIEditModalOpen(true)}
-            disabled={isProcessing}
-            className="flex items-center px-3 py-1 text-indigo-600 bg-indigo-100 rounded hover:bg-indigo-200 disabled:opacity-50"
-            title="AI编辑"
-          >
-            <FiEdit className="mr-1" />
-            AI编辑
-          </button>
-          
-          <button
-            onClick={() => setIsAIContinueModalOpen(true)}
-            disabled={isProcessing}
-            className="flex items-center px-3 py-1 text-purple-600 bg-purple-100 rounded hover:bg-purple-200 disabled:opacity-50"
-            title="AI续写"
-          >
-            <FiZap className="mr-1" />
-            AI续写
-          </button>
-          
-          <button
-            onClick={handleDownload}
-            className="flex items-center px-3 py-1 text-green-600 bg-green-100 rounded hover:bg-green-200"
-            title="下载"
-          >
-            <FiDownload className="mr-1" />
-            下载
-          </button>
-          
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex items-center px-3 py-1 text-blue-600 bg-blue-100 rounded hover:bg-blue-200 disabled:opacity-50"
-            title="保存到浏览器"
-          >
-            <FiSave className="mr-1" />
-            {isSaving ? '保存中...' : '保存'}
-          </button>
-        </div>
-      </div>
       
       {/* 进度条 */}
       {showProgress && (
@@ -411,7 +487,7 @@ export default function MarkdownEditor({
         </div>
       )}
       
-      {/* Markdown编辑器 */}
+      {/* 编辑器 */}
       <div className="flex-1 overflow-auto">
         <div data-color-mode="light">
           <MDEditor
@@ -424,24 +500,56 @@ export default function MarkdownEditor({
         </div>
       </div>
       
-      {/* AI续写设置模态框 */}
+      {/* 自定义右键菜单 */}
+      {contextMenuPosition && (
+        <div 
+          ref={contextMenuRef}
+          className="fixed z-50 bg-white rounded-md shadow-lg border border-gray-200"
+          style={{ 
+            top: `${contextMenuPosition.y}px`, 
+            left: `${contextMenuPosition.x}px`,
+            minWidth: '150px'
+          }}
+        >
+          <div className="py-1">
+            <button
+              onClick={handleDirectAIContinue}
+              className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+              disabled={isProcessing}
+            >
+              <FiZap className="mr-2 text-purple-500" />
+              AI续写选中内容
+            </button>
+            <button
+              onClick={handleDirectAIEdit}
+              className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+              disabled={isProcessing}
+            >
+              <FiEdit className="mr-2 text-indigo-500" />
+              AI编辑选中内容
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* 模态框 */}
       <AIContinueModal
         isOpen={isAIContinueModalOpen}
         onClose={() => setIsAIContinueModalOpen(false)}
         onContinue={handleAIContinue}
+        hasSelection={selectionStart >= 0 && selectionEnd >= 0}
       />
       
-      {/* AI编辑设置模态框 */}
       <AIEditModal
         isOpen={isAIEditModalOpen}
         onClose={() => setIsAIEditModalOpen(false)}
         onEdit={handleAIEdit}
       />
       
-      {/* API密钥设置模态框 */}
       <APIKeyModal
         isOpen={isAPIKeyModalOpen}
         onClose={() => setIsAPIKeyModalOpen(false)}
+        onSave={handleSaveAPIKey}
       />
     </div>
   );

@@ -9,6 +9,8 @@ export interface AIContinueOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  continuationMode?: 'append' | 'insert';
+  selectedText?: string;
   onStream?: (chunk: string) => void;
   onProgress?: (progress: number) => void;
 }

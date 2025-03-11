@@ -29,8 +29,34 @@ export default function EditorPage() {
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState<boolean>(false);
   const [aiSettingsModalOpen, setAiSettingsModalOpen] = useState<boolean>(false);
 
-  // 加载文档
+  // 会话存储键
+  const SESSION_STORAGE_KEY = 'current_editing_document';
+
+  // 从会话存储中恢复编辑状态
   useEffect(() => {
+    // 尝试从会话存储中恢复
+    try {
+      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (sessionData) {
+        const parsedData = JSON.parse(sessionData);
+        setTitle(parsedData.title);
+        setContent(parsedData.content);
+        setIsSaved(parsedData.isSaved);
+        if (parsedData.lastSavedAt) {
+          setLastSavedAt(new Date(parsedData.lastSavedAt));
+        }
+        
+        // 如果URL中没有title参数，但会话中有文档，更新URL
+        if (!documentTitle && parsedData.title !== '无标题文档') {
+          router.replace(`/editor?title=${encodeURIComponent(parsedData.title)}`);
+        }
+        return; // 已从会话中恢复，不需要再从localStorage加载
+      }
+    } catch (error) {
+      console.error('从会话存储恢复失败:', error);
+    }
+    
+    // 如果没有会话数据，且URL中有title参数，则从localStorage加载
     if (documentTitle) {
       setIsLoading(true);
       try {
@@ -40,6 +66,9 @@ export default function EditorPage() {
           setContent(doc.content);
           setIsSaved(true);
           setLastSavedAt(new Date(doc.lastModified));
+          
+          // 保存到会话存储
+          saveToSessionStorage(doc.title, doc.content, true, doc.lastModified);
         } else {
           toast.error('找不到文档');
         }
@@ -50,7 +79,33 @@ export default function EditorPage() {
         setIsLoading(false);
       }
     }
-  }, [documentTitle]);
+  }, [documentTitle, router]);
+
+  // 保存当前编辑状态到会话存储
+  const saveToSessionStorage = useCallback((
+    currentTitle: string, 
+    currentContent: string | undefined, 
+    currentIsSaved: boolean,
+    currentLastSavedAt?: number
+  ) => {
+    try {
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+        title: currentTitle,
+        content: currentContent,
+        isSaved: currentIsSaved,
+        lastSavedAt: currentLastSavedAt || lastSavedAt?.getTime()
+      }));
+    } catch (error) {
+      console.error('保存到会话存储失败:', error);
+    }
+  }, [lastSavedAt]);
+
+  // 监听编辑状态变化，保存到会话存储
+  useEffect(() => {
+    if (content) {
+      saveToSessionStorage(title, content, isSaved);
+    }
+  }, [title, content, isSaved, saveToSessionStorage]);
 
   // 保存文档
   const saveDocumentToStorage = useCallback(async () => {
@@ -67,6 +122,9 @@ export default function EditorPage() {
       setLastSavedAt(new Date(savedDoc.lastModified));
       toast.success('文档已保存到浏览器');
       
+      // 保存到会话存储
+      saveToSessionStorage(title, content, true, savedDoc.lastModified);
+      
       // 如果是新文档，更新URL
       if (!documentTitle || documentTitle !== title) {
         router.push(`/editor?title=${encodeURIComponent(title)}`);
@@ -77,7 +135,7 @@ export default function EditorPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [content, title, documentTitle, router]);
+  }, [content, title, documentTitle, router, saveToSessionStorage]);
 
   // 下载文档
   const handleDownload = useCallback(() => {
