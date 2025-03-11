@@ -32,9 +32,8 @@ export default function EditorPage() {
   // 会话存储键
   const SESSION_STORAGE_KEY = 'current_editing_document';
 
-  // 从会话存储中恢复编辑状态
-  useEffect(() => {
-    // 尝试从会话存储中恢复
+  // 尝试从会话存储中加载文档
+  const tryLoadFromSessionStorage = useCallback(() => {
     try {
       const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
       if (sessionData) {
@@ -50,13 +49,15 @@ export default function EditorPage() {
         if (!documentTitle && parsedData.title !== '无标题文档') {
           router.replace(`/editor?title=${encodeURIComponent(parsedData.title)}`);
         }
-        return; // 已从会话中恢复，不需要再从localStorage加载
       }
     } catch (error) {
       console.error('从会话存储恢复失败:', error);
     }
-    
-    // 如果没有会话数据，且URL中有title参数，则从localStorage加载
+  }, [documentTitle, router]);
+
+  // 从会话存储中恢复编辑状态
+  useEffect(() => {
+    // 如果URL中有title参数，优先从localStorage加载该文档
     if (documentTitle) {
       setIsLoading(true);
       try {
@@ -71,15 +72,22 @@ export default function EditorPage() {
           saveToSessionStorage(doc.title, doc.content, true, doc.lastModified);
         } else {
           toast.error('找不到文档');
+          // 如果找不到文档，尝试从会话存储中恢复
+          tryLoadFromSessionStorage();
         }
       } catch (error) {
         console.error('加载文档错误:', error);
         toast.error('无法加载文档');
+        // 如果加载出错，尝试从会话存储中恢复
+        tryLoadFromSessionStorage();
       } finally {
         setIsLoading(false);
       }
+    } else {
+      // 如果URL中没有title参数，尝试从会话存储中恢复
+      tryLoadFromSessionStorage();
     }
-  }, [documentTitle, router]);
+  }, [documentTitle]);
 
   // 保存当前编辑状态到会话存储
   const saveToSessionStorage = useCallback((

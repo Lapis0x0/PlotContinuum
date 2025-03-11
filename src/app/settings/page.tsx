@@ -28,6 +28,9 @@ export default function SettingsPage() {
   const [newModelName, setNewModelName] = useState('');
   const [newModelValue, setNewModelValue] = useState('');
   const [showAddModel, setShowAddModel] = useState(false);
+  
+  // 默认模型设置
+  const [defaultModel, setDefaultModel] = useState('');
 
   // 加载设置
   useEffect(() => {
@@ -40,6 +43,7 @@ export default function SettingsPage() {
       setApiKey(savedApiKey);
       setBaseUrl(settings.baseUrl);
       setModels(savedModels);
+      setDefaultModel(settings.model);
     }, 0);
     
     return () => clearTimeout(timer);
@@ -55,8 +59,11 @@ export default function SettingsPage() {
         saveAPIKey(apiKey);
       }
       
-      // 保存基础URL
-      saveAISettings({ baseUrl });
+      // 保存基础URL和默认模型
+      saveAISettings({ 
+        baseUrl,
+        model: defaultModel
+      });
       
       toast.success('设置已保存');
       setTimeout(() => {
@@ -227,6 +234,27 @@ export default function SettingsPage() {
                 重置
               </button>
             </div>
+          </div>
+          
+          {/* 默认模型选择 */}
+          <div className="mb-4">
+            <label className="block text-gray-700 text-sm font-medium mb-2">
+              默认模型
+            </label>
+            <select
+              value={defaultModel}
+              onChange={(e) => setDefaultModel(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {models.map((model) => (
+                <option key={model.id} value={model.value}>
+                  {model.name} ({model.value})
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-sm text-gray-500">
+              选择默认使用的AI模型，将用于所有AI操作
+            </p>
           </div>
           
           {showAddModel && (

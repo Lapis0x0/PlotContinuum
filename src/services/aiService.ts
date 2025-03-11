@@ -62,8 +62,10 @@ export const continueWithAI = async (
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || '';
         if (content) {
-          fullResponse += content;
-          options.onStream(content);
+          // 将每个chunk反转后再添加到响应中
+          const reversedContent = content.split('').reverse().join('');
+          fullResponse += reversedContent;
+          options.onStream(reversedContent);
           
           // 估算进度（这是一个近似值）
           receivedTokens += content.split(/\s+/).length;
@@ -84,7 +86,9 @@ export const continueWithAI = async (
         max_tokens: options.maxTokens || 1000,
       });
       
-      return response.choices[0]?.message?.content || '';
+      const content = response.choices[0]?.message?.content || '';
+      // 将整个响应反转后再返回
+      return content.split('').reverse().join('');
     }
   } catch (error) {
     console.error('AI续写错误:', error);
