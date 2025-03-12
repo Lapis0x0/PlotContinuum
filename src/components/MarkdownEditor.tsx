@@ -234,77 +234,21 @@ export default function MarkdownEditor({
     }
 
     setContextMenuPosition(null);
-    setIsProcessing(true);
-    setShowProgress(true);
-    setAiProgress(0);
     
-    try {
-      // 获取AI设置（仅用于模型、温度等参数）
-      const settings = getAISettings();
-      let continuedText = '';
-      
-      // 确定续写模式
-      const hasSelection = selectionStart >= 0 && selectionEnd >= 0;
-      
-      // 如果有选中文本，则在选中位置后续写；否则在文档末尾续写
-      const isInsertMode = hasSelection;
-      
-      // 获取选中的文本或整个文档
-      const selection = window.getSelection();
-      const textToComplete = isInsertMode && selection ? selection.toString() : value;
-      
-      // 使用流式传输
-      await continueWithAI(textToComplete, {
-        model: settings.model,
-        temperature: settings.temperature,
-        maxTokens: settings.maxTokens,
-        continuationMode: isInsertMode ? 'insert' : 'append',
-        onStream: (chunk) => {
-          continuedText += chunk;
-          
-          if (isInsertMode && selection) {
-            // 在选中位置插入生成的内容
-            // 注意：由于我们使用的是TipTap编辑器，这里的实现需要修改
-            // 我们将通过更新整个内容来实现
-            const range = selection.getRangeAt(0);
-            const preSelectionText = value.substring(0, range.startOffset);
-            const postSelectionText = value.substring(range.endOffset);
-            const newValue = preSelectionText + selection.toString() + chunk + postSelectionText;
-            
-            setValue(newValue);
-            // 使用setTimeout来避免在渲染过程中更新父组件状态
-            setTimeout(() => {
-              if (onContentChange) onContentChange(newValue);
-            }, 0);
-          } else {
-            // 在文档末尾添加生成的内容
-            setValue(prev => {
-              const newValue = prev + chunk;
-              // 使用setTimeout来避免在渲染过程中更新父组件状态
-              setTimeout(() => {
-                if (onContentChange) onContentChange(newValue);
-              }, 0);
-              return newValue;
-            });
-          }
-        },
-        onProgress: (progress) => {
-          setAiProgress(progress);
-        }
-      });
-      
-      toast.success('AI续写完成');
-    } catch (error) {
-      console.error('AI续写错误:', error);
-      toast.error('AI续写失败，请检查API密钥和网络连接');
-    } finally {
-      setIsProcessing(false);
-      // 延迟隐藏进度条，让用户看到100%
-      setTimeout(() => {
-        setShowProgress(false);
-        setAiProgress(0);
-      }, 1000);
-    }
+    // 获取AI设置
+    const settings = getAISettings();
+    
+    // 确定续写模式
+    const selection = window.getSelection();
+    const isInsertMode = selection && selection.toString();
+    
+    // 调用统一的handleAIContinue函数
+    handleAIContinue({
+      model: settings.model,
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      continuationMode: isInsertMode ? 'insert' : 'append'
+    });
   };
 
   // 直接使用默认设置进行AI编辑
@@ -349,28 +293,42 @@ export default function MarkdownEditor({
         onStream: (chunk) => {
           continuedText += chunk;
           
+          // 限制更新频率，减少渲染次数
+          const shouldUpdate = chunk.length > 10 || chunk.includes('\n');
+          
           if (isInsertMode && selection) {
-            // 在选中位置插入生成的内容
+            // 在选中文本后面插入生成的内容
             const range = selection.getRangeAt(0);
+            const selectedText = selection.toString();
+            
+            // 直接在选中的文本后面插入生成的内容
             const preSelectionText = value.substring(0, range.startOffset);
             const postSelectionText = value.substring(range.endOffset);
-            const newValue = preSelectionText + selection.toString() + chunk + postSelectionText;
             
-            setValue(newValue);
-            // 使用setTimeout来避免在渲染过程中更新父组件状态
-            setTimeout(() => {
-              if (onContentChange) onContentChange(newValue);
-            }, 0);
-          } else {
-            // 在文档末尾添加生成的内容
-            setValue(prev => {
-              const newValue = prev + chunk;
+            // 将生成的内容直接插入到选中文本之后
+            const newValue = preSelectionText + selectedText + continuedText + postSelectionText;
+            
+            // 只有当累积了足够多的内容或遇到换行符时才更新
+            if (shouldUpdate) {
+              setValue(newValue);
               // 使用setTimeout来避免在渲染过程中更新父组件状态
               setTimeout(() => {
                 if (onContentChange) onContentChange(newValue);
               }, 0);
-              return newValue;
-            });
+            }
+          } else {
+            // 在文档末尾添加生成的内容
+            // 只有当累积了足够多的内容或遇到换行符时才更新
+            if (shouldUpdate) {
+              setValue(prev => {
+                const newValue = prev + chunk;
+                // 使用setTimeout来避免在渲染过程中更新父组件状态
+                setTimeout(() => {
+                  if (onContentChange) onContentChange(newValue);
+                }, 0);
+                return newValue;
+              });
+            }
           }
         },
         onProgress: (progress) => {

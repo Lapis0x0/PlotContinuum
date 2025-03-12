@@ -28,6 +28,8 @@ export const DEFAULT_MODELS: AIModel[] = [
   { id: '2', name: 'DeepSeek-Coder', value: 'deepseek-ai/deepseek-coder' },
   { id: '3', name: 'Llama-3-70b', value: 'meta-llama/Llama-3-70b-chat-hf' },
   { id: '4', name: 'Llama-3-8b', value: 'meta-llama/Llama-3-8b-chat-hf' },
+  { id: '5', name: 'DeepSeek-R1', value: 'deepseek-ai/DeepSeek-R1' },
+  { id: '6', name: 'DeepSeek-V3', value: 'deepseek-ai/DeepSeek-V3' },
 ];
 
 // 默认设置
