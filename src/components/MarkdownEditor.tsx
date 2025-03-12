@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { toast, Toaster } from 'react-hot-toast';
 import { FiSave, FiDownload, FiSettings, FiZap, FiEdit } from 'react-icons/fi';
@@ -11,12 +10,7 @@ import { getAPIKey, getAISettings, saveAPIKey } from '@/services/aiSettingsServi
 import AIContinueModal from '@/components/AIContinueModal';
 import AIEditModal from '@/components/AIEditModal';
 import APIKeyModal from '@/components/APIKeyModal';
-
-// 动态导入Markdown编辑器，避免SSR问题
-const MDEditor = dynamic(
-  () => import('@uiw/react-md-editor').then((mod) => mod.default),
-  { ssr: false }
-);
+import TiptapEditor from '@/components/TiptapEditor';
 
 // 编辑器组件属性
 interface MarkdownEditorProps {
@@ -192,7 +186,7 @@ export default function MarkdownEditor({
   // 设置编辑器右键菜单
   useEffect(() => {
     const setupContextMenu = () => {
-      const editorElement = document.querySelector('.w-md-editor-text-input') as HTMLTextAreaElement;
+      const editorElement = document.querySelector('.tiptap-editor .ProseMirror') as HTMLElement;
       if (!editorElement) return;
 
       editorElement.addEventListener('contextmenu', handleContextMenu);
@@ -214,19 +208,20 @@ export default function MarkdownEditor({
   const handleContextMenu = (event: MouseEvent) => {
     event.preventDefault();
     
-    const textArea = document.querySelector('.w-md-editor-text-input') as HTMLTextAreaElement;
-    if (textArea) {
-      editorRef.current = textArea;
-      const start = textArea.selectionStart;
-      const end = textArea.selectionEnd;
-      
-      if (start !== end) {
-        setSelectionStart(start);
-        setSelectionEnd(end);
+    const selection = window.getSelection();
+    if (selection && selection.toString()) {
+      // 获取选中的文本
+      const selectedText = selection.toString();
+      if (selectedText) {
+        // 设置选中文本的位置（这里我们不再使用具体的索引，而是保存选中的文本）
+        setSelectionStart(0);
+        setSelectionEnd(1);
         setContextMenuPosition({ x: event.clientX, y: event.clientY });
       } else {
         setContextMenuPosition(null);
       }
+    } else {
+      setContextMenuPosition(null);
     }
   };
 
@@ -253,7 +248,10 @@ export default function MarkdownEditor({
       
       // 如果有选中文本，则在选中位置后续写；否则在文档末尾续写
       const isInsertMode = hasSelection;
-      const textToComplete = isInsertMode ? value.substring(selectionStart, selectionEnd) : value;
+      
+      // 获取选中的文本或整个文档
+      const selection = window.getSelection();
+      const textToComplete = isInsertMode && selection ? selection.toString() : value;
       
       // 使用流式传输
       await continueWithAI(textToComplete, {
@@ -264,16 +262,20 @@ export default function MarkdownEditor({
         onStream: (chunk) => {
           continuedText += chunk;
           
-          if (isInsertMode) {
+          if (isInsertMode && selection) {
             // 在选中位置插入生成的内容
-            setValue(prev => {
-              const updatedValue = prev.substring(0, selectionEnd) + chunk + prev.substring(selectionEnd);
-              // 使用setTimeout来避免在渲染过程中更新父组件状态
-              setTimeout(() => {
-                if (onContentChange) onContentChange(updatedValue);
-              }, 0);
-              return updatedValue;
-            });
+            // 注意：由于我们使用的是TipTap编辑器，这里的实现需要修改
+            // 我们将通过更新整个内容来实现
+            const range = selection.getRangeAt(0);
+            const preSelectionText = value.substring(0, range.startOffset);
+            const postSelectionText = value.substring(range.endOffset);
+            const newValue = preSelectionText + selection.toString() + chunk + postSelectionText;
+            
+            setValue(newValue);
+            // 使用setTimeout来避免在渲染过程中更新父组件状态
+            setTimeout(() => {
+              if (onContentChange) onContentChange(newValue);
+            }, 0);
           } else {
             // 在文档末尾添加生成的内容
             setValue(prev => {
@@ -337,8 +339,9 @@ export default function MarkdownEditor({
     
     try {
       let continuedText = '';
-      const isInsertMode = settings.continuationMode === 'insert' && selectionStart >= 0 && selectionEnd >= 0;
-      const textToComplete = isInsertMode ? value.substring(selectionStart, selectionEnd) : value;
+      const selection = window.getSelection();
+      const isInsertMode = settings.continuationMode === 'insert' && selection && selection.toString();
+      const textToComplete = isInsertMode && selection ? selection.toString() : value;
       
       // 使用流式传输
       await continueWithAI(textToComplete, {
@@ -346,16 +349,18 @@ export default function MarkdownEditor({
         onStream: (chunk) => {
           continuedText += chunk;
           
-          if (isInsertMode) {
+          if (isInsertMode && selection) {
             // 在选中位置插入生成的内容
-            setValue(prev => {
-              const updatedValue = prev.substring(0, selectionEnd) + chunk + prev.substring(selectionEnd);
-              // 使用setTimeout来避免在渲染过程中更新父组件状态
-              setTimeout(() => {
-                if (onContentChange) onContentChange(updatedValue);
-              }, 0);
-              return updatedValue;
-            });
+            const range = selection.getRangeAt(0);
+            const preSelectionText = value.substring(0, range.startOffset);
+            const postSelectionText = value.substring(range.endOffset);
+            const newValue = preSelectionText + selection.toString() + chunk + postSelectionText;
+            
+            setValue(newValue);
+            // 使用setTimeout来避免在渲染过程中更新父组件状态
+            setTimeout(() => {
+              if (onContentChange) onContentChange(newValue);
+            }, 0);
           } else {
             // 在文档末尾添加生成的内容
             setValue(prev => {
@@ -405,8 +410,9 @@ export default function MarkdownEditor({
     
     try {
       let editedText = '';
-      const isEditingSelection = selectionStart >= 0 && selectionEnd >= 0;
-      const textToEdit = isEditingSelection ? value.substring(selectionStart, selectionEnd) : value;
+      const selection = window.getSelection();
+      const isEditingSelection = selection && selection.toString();
+      const textToEdit = isEditingSelection && selection ? selection.toString() : value;
       
       // 使用流式传输
       editedText = await editWithAI(textToEdit, instruction, {
@@ -421,9 +427,13 @@ export default function MarkdownEditor({
       });
       
       // 编辑完成后更新内容
-      if (isEditingSelection && selectionStart >= 0 && selectionEnd >= 0) {
+      if (isEditingSelection && selection) {
         // 只替换选中的部分
-        const newValue = value.substring(0, selectionStart) + editedText + value.substring(selectionEnd);
+        const range = selection.getRangeAt(0);
+        const preSelectionText = value.substring(0, range.startOffset);
+        const postSelectionText = value.substring(range.endOffset);
+        const newValue = preSelectionText + editedText + postSelectionText;
+        
         setValue(newValue);
         // 使用setTimeout来避免在渲染过程中更新父组件状态
         setTimeout(() => {
@@ -463,13 +473,12 @@ export default function MarkdownEditor({
   };
 
   // 处理内容变化
-  const handleContentChange = (newValue: string | undefined) => {
-    const content = newValue || '';
-    setValue(content);
+  const handleContentChange = (newValue: string) => {
+    setValue(newValue);
     
     // 使用setTimeout来避免在渲染过程中更新父组件状态
     setTimeout(() => {
-      if (onContentChange) onContentChange(content);
+      if (onContentChange) onContentChange(newValue);
     }, 0);
   };
 
@@ -489,15 +498,11 @@ export default function MarkdownEditor({
       
       {/* 编辑器 */}
       <div className="flex-1 overflow-auto">
-        <div data-color-mode="light">
-          <MDEditor
-            value={value}
-            onChange={handleContentChange}
-            height="100%"
-            preview="edit"
-            className="w-full h-full"
-          />
-        </div>
+        <TiptapEditor
+          value={value}
+          onChange={handleContentChange}
+          placeholder="开始写作..."
+        />
       </div>
       
       {/* 自定义右键菜单 */}
