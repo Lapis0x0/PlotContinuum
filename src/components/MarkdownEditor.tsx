@@ -10,6 +10,7 @@ import { getAPIKey, getAISettings, saveAPIKey } from '@/services/aiSettingsServi
 import AIContinueModal from '@/components/AIContinueModal';
 import AIEditModal from '@/components/AIEditModal';
 import APIKeyModal from '@/components/APIKeyModal';
+import AIContinuePopover from '@/components/AIContinuePopover';
 import TiptapEditor from '@/components/TiptapEditor';
 
 // 编辑器组件属性
@@ -68,6 +69,14 @@ export default function MarkdownEditor({
   const [selectionStart, setSelectionStart] = useState<number>(-1);
   const [selectionEnd, setSelectionEnd] = useState<number>(-1);
   const [contextMenuPosition, setContextMenuPosition] = useState<{x: number, y: number} | null>(null);
+  const [popoverPosition, setPopoverPosition] = useState<{x: number, y: number} | null>(null);
+  const [streamingContent, setStreamingContent] = useState<string>('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [currentSelection, setCurrentSelection] = useState<{
+    text: string,
+    range: Range | null,
+    isInsertMode: boolean
+  } | null>(null);
   const lastSavedContentRef = useRef<string>('');
   const lastSavedTitleRef = useRef<string>('');
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -242,6 +251,43 @@ export default function MarkdownEditor({
     const selection = window.getSelection();
     const isInsertMode = selection && selection.toString();
     
+    // 保存当前选区信息
+    if (isInsertMode && selection) {
+      setCurrentSelection({
+        text: selection.toString(),
+        range: selection.getRangeAt(0).cloneRange(),
+        isInsertMode: true
+      });
+      
+      // 设置弹窗位置在选区附近
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setPopoverPosition({ 
+        x: rect.right + 10, 
+        y: rect.top 
+      });
+    } else {
+      // 在文档末尾添加内容
+      setCurrentSelection({
+        text: value,
+        range: null,
+        isInsertMode: false
+      });
+      
+      // 获取编辑器末尾位置
+      const editorElement = document.querySelector('.tiptap-editor .ProseMirror') as HTMLElement;
+      if (editorElement) {
+        const rect = editorElement.getBoundingClientRect();
+        setPopoverPosition({ 
+          x: rect.right - 300, 
+          y: rect.bottom - 50 
+        });
+      } else {
+        // 默认位置
+        setPopoverPosition({ x: window.innerWidth / 2 - 150, y: window.innerHeight / 2 - 100 });
+      }
+    }
+    
     // 调用统一的handleAIContinue函数
     handleAIContinue({
       model: settings.model,
@@ -278,7 +324,8 @@ export default function MarkdownEditor({
 
     setIsAIContinueModalOpen(false);
     setIsProcessing(true);
-    setShowProgress(true);
+    setIsStreaming(true);
+    setStreamingContent('');
     setAiProgress(0);
     
     try {
@@ -292,44 +339,7 @@ export default function MarkdownEditor({
         ...settings,
         onStream: (chunk) => {
           continuedText += chunk;
-          
-          // 限制更新频率，减少渲染次数
-          const shouldUpdate = chunk.length > 10 || chunk.includes('\n');
-          
-          if (isInsertMode && selection) {
-            // 在选中文本后面插入生成的内容
-            const range = selection.getRangeAt(0);
-            const selectedText = selection.toString();
-            
-            // 直接在选中的文本后面插入生成的内容
-            const preSelectionText = value.substring(0, range.startOffset);
-            const postSelectionText = value.substring(range.endOffset);
-            
-            // 将生成的内容直接插入到选中文本之后
-            const newValue = preSelectionText + selectedText + continuedText + postSelectionText;
-            
-            // 只有当累积了足够多的内容或遇到换行符时才更新
-            if (shouldUpdate) {
-              setValue(newValue);
-              // 使用setTimeout来避免在渲染过程中更新父组件状态
-              setTimeout(() => {
-                if (onContentChange) onContentChange(newValue);
-              }, 0);
-            }
-          } else {
-            // 在文档末尾添加生成的内容
-            // 只有当累积了足够多的内容或遇到换行符时才更新
-            if (shouldUpdate) {
-              setValue(prev => {
-                const newValue = prev + chunk;
-                // 使用setTimeout来避免在渲染过程中更新父组件状态
-                setTimeout(() => {
-                  if (onContentChange) onContentChange(newValue);
-                }, 0);
-                return newValue;
-              });
-            }
-          }
+          setStreamingContent(prev => prev + chunk);
         },
         onProgress: (progress) => {
           setAiProgress(progress);
@@ -340,13 +350,10 @@ export default function MarkdownEditor({
     } catch (error) {
       console.error('AI续写错误:', error);
       toast.error('AI续写失败，请检查API密钥和网络连接');
+      setPopoverPosition(null);
     } finally {
       setIsProcessing(false);
-      // 延迟隐藏进度条，让用户看到100%
-      setTimeout(() => {
-        setShowProgress(false);
-        setAiProgress(0);
-      }, 1000);
+      setIsStreaming(false);
     }
   };
 
@@ -420,6 +427,76 @@ export default function MarkdownEditor({
     }
   };
 
+  // 处理接受AI续写内容
+  const handleAcceptAIContinue = () => {
+    if (!currentSelection || !streamingContent) return;
+    
+    if (currentSelection.isInsertMode && currentSelection.range) {
+      // 在选中文本所在段落的末尾添加新段落，并将生成的内容插入到新段落中
+      const range = currentSelection.range;
+      const selectedText = currentSelection.text;
+      
+      // 获取完整文本
+      const fullText = value;
+      
+      // 找到选中文本所在段落的末尾
+      const selectionStartOffset = range.startOffset;
+      const selectionEndOffset = range.endOffset;
+      
+      // 向后查找段落结束位置（找到下一个换行符或文档末尾）
+      let paragraphEndOffset = selectionEndOffset;
+      while (paragraphEndOffset < fullText.length && fullText[paragraphEndOffset] !== '\n') {
+        paragraphEndOffset++;
+      }
+      
+      // 向前查找段落开始位置（找到上一个换行符或文档开头）
+      let paragraphStartOffset = selectionStartOffset;
+      while (paragraphStartOffset > 0 && fullText[paragraphStartOffset - 1] !== '\n') {
+        paragraphStartOffset--;
+      }
+      
+      // 构建新文本：段落前部分 + 段落内容 + 两个换行符 + 生成的内容 + 段落后部分
+      const textBeforeParagraph = fullText.substring(0, paragraphStartOffset);
+      const paragraphContent = fullText.substring(paragraphStartOffset, paragraphEndOffset);
+      const textAfterParagraph = fullText.substring(paragraphEndOffset);
+      
+      // 在段落末尾添加两个换行符，然后添加生成的内容
+      const newValue = textBeforeParagraph + paragraphContent + '\n\n' + streamingContent + textAfterParagraph;
+      
+      setValue(newValue);
+      // 使用setTimeout来避免在渲染过程中更新父组件状态
+      setTimeout(() => {
+        if (onContentChange) onContentChange(newValue);
+      }, 0);
+    } else {
+      // 在文档末尾添加新段落和生成的内容
+      const newValue = value + '\n\n' + streamingContent;
+      setValue(newValue);
+      // 使用setTimeout来避免在渲染过程中更新父组件状态
+      setTimeout(() => {
+        if (onContentChange) onContentChange(newValue);
+      }, 0);
+    }
+    
+    // 清理状态
+    setPopoverPosition(null);
+    setStreamingContent('');
+    setCurrentSelection(null);
+    
+    toast.success('AI续写内容已插入');
+  };
+
+  // 关闭AI续写弹窗
+  const handleCloseAIContinue = () => {
+    setPopoverPosition(null);
+    setStreamingContent('');
+    setCurrentSelection(null);
+    
+    if (isStreaming) {
+      toast.error('AI续写已取消');
+    }
+  };
+
   // 处理保存API密钥
   const handleSaveAPIKey = (apiKey: string) => {
     if (apiKey) {
@@ -462,6 +539,16 @@ export default function MarkdownEditor({
           placeholder="开始写作..."
         />
       </div>
+      
+      {/* AI续写弹窗 */}
+      <AIContinuePopover
+        position={popoverPosition}
+        content={streamingContent}
+        isStreaming={isStreaming}
+        progress={aiProgress}
+        onClose={handleCloseAIContinue}
+        onAccept={handleAcceptAIContinue}
+      />
       
       {/* 自定义右键菜单 */}
       {contextMenuPosition && (
