@@ -74,9 +74,13 @@ export default function MarkdownEditor({
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentSelection, setCurrentSelection] = useState<{
     text: string,
-    range: Range | null,
-    isInsertMode: boolean
+    range?: Range | null,
+    isInsertMode: boolean,
+    selectionStartOffset?: number,
+    selectionEndOffset?: number,
+    fullText?: string
   } | null>(null);
+  const [processingSelection, setProcessingSelection] = useState<any>(null);
   const lastSavedContentRef = useRef<string>('');
   const lastSavedTitleRef = useRef<string>('');
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -249,36 +253,59 @@ export default function MarkdownEditor({
     
     // 确定续写模式
     const selection = window.getSelection();
-    const isInsertMode = selection && selection.toString();
+    const selectedText = selection ? selection.toString() : '';
+    const isInsertMode = selectedText ? true : false;
     
-    // 保存当前选区信息
+    // 记录原始选区信息
+    console.log('原始选区信息:', {
+      selection: selectedText,
+      rangeCount: selection?.rangeCount,
+      isInsertMode
+    });
+    
+    // 创建选区信息对象，但不立即设置状态
+    let selectionInfo = null;
+    let popoverPos = null;
+    
     if (isInsertMode && selection) {
-      setCurrentSelection({
-        text: selection.toString(),
-        range: selection.getRangeAt(0).cloneRange(),
-        isInsertMode: true
+      // 获取完整文本用于记忆位置
+      const fullText = value;
+      const range = selection.getRangeAt(0);
+      
+      console.log('选中的文本:', {
+        text: selectedText,
+        length: selectedText.length
       });
       
+      // 创建选区信息对象
+      selectionInfo = {
+        text: selectedText,
+        range: range.cloneRange(),
+        isInsertMode: true,
+        selectionStartOffset: 0,
+        selectionEndOffset: 0,
+        fullText
+      };
+      
       // 简化定位逻辑，直接使用选区位置
-      const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       
       console.log('选区位置:', rect);
       
-      // 将指示器放在选区下方左边的位置
-      setPopoverPosition({ 
+      // 创建弹窗位置对象
+      popoverPos = { 
         x: rect.left, 
         y: rect.bottom + 10 // 选区下方，留出一定间距
-      });
+      };
       
-      console.log('设置的弹窗位置:', { x: rect.left, y: rect.bottom + 10 });
+      console.log('设置的弹窗位置:', popoverPos);
     } else {
       // 在文档末尾添加内容
-      setCurrentSelection({
+      selectionInfo = {
         text: value,
         range: null,
         isInsertMode: false
-      });
+      };
       
       // 获取编辑器末尾位置
       const editorElement = document.querySelector('.tiptap-editor .ProseMirror') as HTMLElement;
@@ -286,27 +313,117 @@ export default function MarkdownEditor({
         const rect = editorElement.getBoundingClientRect();
         console.log('编辑器位置:', rect);
         
-        // 将指示器放在编辑器的末尾位置的左侧
-        setPopoverPosition({ 
+        // 创建弹窗位置对象
+        popoverPos = { 
           x: rect.left + 20, // 稍微向右偏移，避免靠边
           y: rect.bottom - 30 // 编辑器下方，留出一定间距
-        });
+        };
         
-        console.log('设置的弹窗位置:', { x: rect.left + 20, y: rect.bottom - 30 });
+        console.log('设置的弹窗位置:', popoverPos);
       } else {
         // 默认位置
-        setPopoverPosition({ x: window.innerWidth / 2 - 60, y: window.innerHeight / 2 });
-        console.log('使用默认位置:', { x: window.innerWidth / 2 - 60, y: window.innerHeight / 2 });
+        popoverPos = { x: window.innerWidth / 2 - 60, y: window.innerHeight / 2 };
+        console.log('使用默认位置:', popoverPos);
       }
     }
     
-    // 调用统一的handleAIContinue函数
-    handleAIContinue({
+    // 设置状态
+    setCurrentSelection(selectionInfo);
+    setPopoverPosition(popoverPos);
+    
+    // 直接调用handleAIContinue函数，但传递选区信息作为参数
+    handleAIContinueWithSelection(selectionInfo, {
       model: settings.model,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
       continuationMode: isInsertMode ? 'insert' : 'append'
     });
+  };
+  
+  // 新增函数：使用传入的选区信息进行AI续写
+  const handleAIContinueWithSelection = async (selectionInfo: any, options: any) => {
+    try {
+      setIsStreaming(true);
+      setStreamingContent('');
+      setAiProgress(0);
+      
+      // 保存选区信息到专用状态变量，确保后续可以正确获取
+      setProcessingSelection(selectionInfo);
+      
+      console.log('开始AI续写，选项:', options);
+      console.log('当前弹窗位置:', popoverPosition);
+      console.log('传入的选区信息:', selectionInfo);
+      
+      // 获取API密钥
+      const apiKey = getAPIKey();
+      if (!apiKey) {
+        toast.error('请先设置API密钥');
+        setIsAPIKeyModalOpen(true);
+        return;
+      }
+      
+      // 获取要续写的文本
+      let textToProcess = '';
+      
+      if (options.continuationMode === 'insert' && selectionInfo?.text) {
+        // 插入模式：使用选中的文本
+        textToProcess = selectionInfo.text;
+        console.log('使用选中的文本进行续写');
+      } else {
+        // 追加模式：使用完整文档
+        textToProcess = value || '';
+        console.log('使用完整文档进行续写');
+      }
+      
+      // 记录实际传递给模型的文本
+      console.log('传递给模型的文本:', {
+        length: textToProcess.length,
+        preview: textToProcess.length > 100 
+          ? textToProcess.substring(0, 50) + '...' + textToProcess.substring(textToProcess.length - 50) 
+          : textToProcess,
+        isFullDocument: textToProcess === value,
+        isSelection: selectionInfo?.text === textToProcess,
+        mode: options.continuationMode
+      });
+      
+      // 保存当前文档
+      saveDocumentToStorage(title, value, true);
+      
+      // 准备AI续写选项
+      const aiOptions = {
+        model: options.model,
+        temperature: options.temperature,
+        maxTokens: options.maxTokens || 500,
+        continuationMode: options.continuationMode,
+        onStream: (chunk: string) => {
+          setStreamingContent(prev => prev + chunk);
+        },
+        onProgress: (progress: number) => {
+          setAiProgress(progress);
+          console.log('AI续写进度:', progress);
+        }
+      };
+      
+      // 调用AI服务进行续写
+      const result = await continueWithAI(textToProcess, aiOptions);
+      
+      console.log('AI续写完成，内容长度:', result.length);
+      
+      // 确保进度条显示100%
+      setAiProgress(100);
+      
+      // 保存最终结果
+      setStreamingContent(result);
+    } catch (error) {
+      console.error('AI续写出错:', error);
+      toast.error('AI续写出错，请稍后再试');
+      
+      // 出错时关闭弹窗
+      setPopoverPosition(null);
+      setProcessingSelection(null);
+    } finally {
+      setIsStreaming(false);
+    }
   };
 
   // 直接使用默认设置进行AI编辑
@@ -332,6 +449,7 @@ export default function MarkdownEditor({
       
       console.log('开始AI续写，选项:', options);
       console.log('当前弹窗位置:', popoverPosition);
+      console.log('当前选区信息:', currentSelection);
       
       // 获取API密钥
       const apiKey = getAPIKey();
@@ -342,7 +460,28 @@ export default function MarkdownEditor({
       }
       
       // 获取要续写的文本
-      const textToProcess = currentSelection?.text || value || '';
+      let textToProcess = '';
+      
+      if (options.continuationMode === 'insert' && currentSelection?.text) {
+        // 插入模式：使用选中的文本
+        textToProcess = currentSelection.text;
+        console.log('使用选中的文本进行续写');
+      } else {
+        // 追加模式：使用完整文档
+        textToProcess = value || '';
+        console.log('使用完整文档进行续写');
+      }
+      
+      // 记录实际传递给模型的文本
+      console.log('传递给模型的文本:', {
+        length: textToProcess.length,
+        preview: textToProcess.length > 100 
+          ? textToProcess.substring(0, 50) + '...' + textToProcess.substring(textToProcess.length - 50) 
+          : textToProcess,
+        isFullDocument: textToProcess === value,
+        isSelection: currentSelection?.text === textToProcess,
+        mode: options.continuationMode
+      });
       
       // 保存当前文档
       saveDocumentToStorage(title, value, true);
@@ -455,68 +594,35 @@ export default function MarkdownEditor({
 
   // 处理接受AI续写内容
   const handleAcceptAIContinue = () => {
-    if (!currentSelection || !streamingContent) return;
+    if (!processingSelection || !streamingContent) return;
     
-    if (currentSelection.isInsertMode && currentSelection.range) {
-      // 在选中文本所在段落的末尾添加新段落，并将生成的内容插入到新段落中
-      const range = currentSelection.range;
-      const selectedText = currentSelection.text;
+    try {
+      // 复制内容到剪贴板
+      navigator.clipboard.writeText(streamingContent)
+        .then(() => {
+          toast.success('续写内容已复制到剪贴板');
+          console.log('续写内容已复制到剪贴板');
+        })
+        .catch((error) => {
+          console.error('复制到剪贴板失败:', error);
+          toast.error('复制到剪贴板失败');
+        });
       
-      // 获取完整文本
-      const fullText = value;
-      
-      // 找到选中文本所在段落的末尾
-      const selectionStartOffset = range.startOffset;
-      const selectionEndOffset = range.endOffset;
-      
-      // 向后查找段落结束位置（找到下一个换行符或文档末尾）
-      let paragraphEndOffset = selectionEndOffset;
-      while (paragraphEndOffset < fullText.length && fullText[paragraphEndOffset] !== '\n') {
-        paragraphEndOffset++;
-      }
-      
-      // 向前查找段落开始位置（找到上一个换行符或文档开头）
-      let paragraphStartOffset = selectionStartOffset;
-      while (paragraphStartOffset > 0 && fullText[paragraphStartOffset - 1] !== '\n') {
-        paragraphStartOffset--;
-      }
-      
-      // 构建新文本：段落前部分 + 段落内容 + 两个换行符 + 生成的内容 + 段落后部分
-      const textBeforeParagraph = fullText.substring(0, paragraphStartOffset);
-      const paragraphContent = fullText.substring(paragraphStartOffset, paragraphEndOffset);
-      const textAfterParagraph = fullText.substring(paragraphEndOffset);
-      
-      // 在段落末尾添加两个换行符，然后添加生成的内容
-      const newValue = textBeforeParagraph + paragraphContent + '\n\n' + streamingContent + textAfterParagraph;
-      
-      setValue(newValue);
-      // 使用setTimeout来避免在渲染过程中更新父组件状态
-      setTimeout(() => {
-        if (onContentChange) onContentChange(newValue);
-      }, 0);
-    } else {
-      // 在文档末尾添加新段落和生成的内容
-      const newValue = value + '\n\n' + streamingContent;
-      setValue(newValue);
-      // 使用setTimeout来避免在渲染过程中更新父组件状态
-      setTimeout(() => {
-        if (onContentChange) onContentChange(newValue);
-      }, 0);
+      // 清理状态
+      setPopoverPosition(null);
+      setStreamingContent('');
+      setProcessingSelection(null);
+    } catch (error) {
+      console.error('处理AI续写内容时出错:', error);
+      toast.error('处理AI续写内容时出错');
     }
-    
-    // 清理状态
-    setPopoverPosition(null);
-    setStreamingContent('');
-    setCurrentSelection(null);
-    
-    toast.success('AI续写内容已插入');
   };
 
   // 关闭AI续写弹窗
   const handleCloseAIContinue = () => {
     setPopoverPosition(null);
     setStreamingContent('');
-    setCurrentSelection(null);
+    setProcessingSelection(null);
     
     if (isStreaming) {
       toast.error('AI续写已取消');

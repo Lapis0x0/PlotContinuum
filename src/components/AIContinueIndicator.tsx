@@ -172,7 +172,7 @@ const AIContinueIndicator: React.FC<AIContinueIndicatorProps> = ({
                 className="px-3 py-1.5 bg-blue-500 text-white rounded-md text-sm flex items-center hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300"
               >
                 <FiCheck size={14} className="mr-1.5" />
-                插入
+                复制到剪贴板
               </button>
             </div>
           )}

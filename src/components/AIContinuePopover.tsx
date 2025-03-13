@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { FiX, FiCheck } from 'react-icons/fi';
+import { FiX } from 'react-icons/fi';
+import { toast } from 'sonner';
 
 interface AIContinuePopoverProps {
   position: { x: number, y: number } | null;
@@ -59,6 +60,18 @@ const AIContinuePopover: React.FC<AIContinuePopoverProps> = ({
     }
   }, [content]);
   
+  // 复制内容到剪贴板
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      toast.success('续写内容已复制到剪贴板');
+      onClose(); // 复制后关闭弹窗
+    } catch (err) {
+      console.error('复制到剪贴板失败:', err);
+      toast.error('复制到剪贴板失败');
+    }
+  };
+  
   if (!position) return null;
   
   return (
@@ -109,12 +122,11 @@ const AIContinuePopover: React.FC<AIContinuePopoverProps> = ({
       {/* 操作按钮 */}
       <div className="flex justify-end px-3 py-2 border-t border-gray-200 bg-gray-50 rounded-b-md">
         <button
-          onClick={onAccept}
+          onClick={copyToClipboard}
           className="px-3 py-1 bg-blue-500 text-white rounded-md text-sm flex items-center hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={isStreaming || !content}
         >
-          <FiCheck size={14} className="mr-1" />
-          插入
+          复制到剪贴板
         </button>
       </div>
     </div>
