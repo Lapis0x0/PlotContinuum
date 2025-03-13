@@ -10,7 +10,7 @@ import { getAPIKey, getAISettings, saveAPIKey } from '@/services/aiSettingsServi
 import AIContinueModal from '@/components/AIContinueModal';
 import AIEditModal from '@/components/AIEditModal';
 import APIKeyModal from '@/components/APIKeyModal';
-import AIContinuePopover from '@/components/AIContinuePopover';
+import AIContinueIndicator from '@/components/AIContinueIndicator';
 import TiptapEditor from '@/components/TiptapEditor';
 
 // 编辑器组件属性
@@ -259,13 +259,19 @@ export default function MarkdownEditor({
         isInsertMode: true
       });
       
-      // 设置弹窗位置在选区附近
+      // 简化定位逻辑，直接使用选区位置
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
+      
+      console.log('选区位置:', rect);
+      
+      // 将指示器放在选区下方左边的位置
       setPopoverPosition({ 
-        x: rect.right + 10, 
-        y: rect.top 
+        x: rect.left, 
+        y: rect.bottom + 10 // 选区下方，留出一定间距
       });
+      
+      console.log('设置的弹窗位置:', { x: rect.left, y: rect.bottom + 10 });
     } else {
       // 在文档末尾添加内容
       setCurrentSelection({
@@ -278,13 +284,19 @@ export default function MarkdownEditor({
       const editorElement = document.querySelector('.tiptap-editor .ProseMirror') as HTMLElement;
       if (editorElement) {
         const rect = editorElement.getBoundingClientRect();
+        console.log('编辑器位置:', rect);
+        
+        // 将指示器放在编辑器的末尾位置的左侧
         setPopoverPosition({ 
-          x: rect.right - 300, 
-          y: rect.bottom - 50 
+          x: rect.left + 20, // 稍微向右偏移，避免靠边
+          y: rect.bottom - 30 // 编辑器下方，留出一定间距
         });
+        
+        console.log('设置的弹窗位置:', { x: rect.left + 20, y: rect.bottom - 30 });
       } else {
         // 默认位置
-        setPopoverPosition({ x: window.innerWidth / 2 - 150, y: window.innerHeight / 2 - 100 });
+        setPopoverPosition({ x: window.innerWidth / 2 - 60, y: window.innerHeight / 2 });
+        console.log('使用默认位置:', { x: window.innerWidth / 2 - 60, y: window.innerHeight / 2 });
       }
     }
     
@@ -312,47 +324,61 @@ export default function MarkdownEditor({
   };
 
   // 处理AI续写
-  const handleAIContinue = async (settings: any) => {
-    const apiKey = getAPIKey();
-    if (!apiKey) {
-      setIsAPIKeyModalOpen(true);
-      return;
-    }
-
-    // 保存当前文档
-    saveDocumentToStorage(title, value, true);
-
-    setIsAIContinueModalOpen(false);
-    setIsProcessing(true);
-    setIsStreaming(true);
-    setStreamingContent('');
-    setAiProgress(0);
-    
+  const handleAIContinue = async (options: any) => {
     try {
-      let continuedText = '';
-      const selection = window.getSelection();
-      const isInsertMode = settings.continuationMode === 'insert' && selection && selection.toString();
-      const textToComplete = isInsertMode && selection ? selection.toString() : value;
+      setIsStreaming(true);
+      setStreamingContent('');
+      setAiProgress(0);
       
-      // 使用流式传输
-      await continueWithAI(textToComplete, {
-        ...settings,
-        onStream: (chunk) => {
-          continuedText += chunk;
+      console.log('开始AI续写，选项:', options);
+      console.log('当前弹窗位置:', popoverPosition);
+      
+      // 获取API密钥
+      const apiKey = getAPIKey();
+      if (!apiKey) {
+        toast.error('请先设置API密钥');
+        setIsAPIKeyModalOpen(true);
+        return;
+      }
+      
+      // 获取要续写的文本
+      const textToProcess = currentSelection?.text || value || '';
+      
+      // 保存当前文档
+      saveDocumentToStorage(title, value, true);
+      
+      // 准备AI续写选项
+      const aiOptions = {
+        model: options.model,
+        temperature: options.temperature,
+        maxTokens: options.maxTokens || 500,
+        continuationMode: options.continuationMode,
+        onStream: (chunk: string) => {
           setStreamingContent(prev => prev + chunk);
         },
-        onProgress: (progress) => {
+        onProgress: (progress: number) => {
           setAiProgress(progress);
+          console.log('AI续写进度:', progress);
         }
-      });
+      };
       
-      toast.success('AI续写完成');
+      // 调用AI服务进行续写
+      const result = await continueWithAI(textToProcess, aiOptions);
+      
+      console.log('AI续写完成，内容长度:', result.length);
+      
+      // 确保进度条显示100%
+      setAiProgress(100);
+      
+      // 保存最终结果
+      setStreamingContent(result);
     } catch (error) {
-      console.error('AI续写错误:', error);
-      toast.error('AI续写失败，请检查API密钥和网络连接');
+      console.error('AI续写出错:', error);
+      toast.error('AI续写出错，请稍后再试');
+      
+      // 出错时关闭弹窗
       setPopoverPosition(null);
     } finally {
-      setIsProcessing(false);
       setIsStreaming(false);
     }
   };
@@ -540,8 +566,8 @@ export default function MarkdownEditor({
         />
       </div>
       
-      {/* AI续写弹窗 */}
-      <AIContinuePopover
+      {/* AI续写指示器 */}
+      <AIContinueIndicator
         position={popoverPosition}
         content={streamingContent}
         isStreaming={isStreaming}
